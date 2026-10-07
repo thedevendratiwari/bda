@@ -1,0 +1,591 @@
+USE CASE 4:
+Online Learning Platform Analytics using Hive
+
+//Concepts
+Create a Hive database
+Create an Internal/Managed table
+Create an External table
+Load data using LOCAL INPATH
+Load data using HDFS INPATH
+Perform Inner Join
+Perform Outer Joins
+Perform Map-Side Join
+Perform Reduce-Side Join
+Create a Partitioned table
+Query partitioned data
+Understand when each concept is useful in a corporate environment
+
+//Problem Statement
+
+An online learning platform stores information about learners, courses, and course enrollments.
+
+The data engineering team needs to build a Hive-based analytics system to answer questions such as:
+
+Which learners are enrolled in which courses?
+Which courses have the highest number of enrollments?
+Which learners have not enrolled in any course?
+Which courses currently have no learners?
+How can small reference tables such as course information be joined efficiently with a large enrollment table?
+How can enrollment data be partitioned so that queries process only the required data?
+
+The organization wants to store raw data in HDFS and use Hive for SQL-based analytics.
+
+//DO THIS:
+1. Start Hadoop
+       ↓
+2. Create local CSV files
+       ↓
+3. Put raw data into HDFS
+       ↓
+4. Start Hive
+       ↓
+5. CREATE DATABASE
+       ↓
+6. CREATE MANAGED TABLE
+       ↓
+7. LOAD DATA LOCAL INPATH
+       ↓
+8. CREATE EXTERNAL TABLE
+       ↓
+9. LOAD DATA INPATH
+       ↓
+10. CREATE enrollment table
+       ↓
+11. INNER JOIN
+       ↓
+12. LEFT / RIGHT / FULL OUTER JOIN
+       ↓
+13. MAP-SIDE JOIN
+       ↓
+14. REDUCE-SIDE JOIN
+       ↓
+15. CREATE PARTITIONED TABLE
+       ↓
+16. INSERT INTO PARTITION
+       ↓
+17. SHOW PARTITIONS
+       ↓
+18. QUERY PARTITION
+       ↓
+19. Combine partition + JOIN
+
+
+
+#####################################################################################################################
+                                           SOLUTION
+#####################################################################################################################
+
+# USE CASE 4
+# ONLINE LEARNING PLATFORM ANALYTICS
+# HDFS + HIVE + JOINS + PARTITIONING
+
+
+==================================================
+# 1. START HADOOP
+==================================================
+
+start-dfs.sh
+start-yarn.sh
+
+jps
+
+hdfs dfs -ls /
+
+
+==================================================
+# 2. CREATE PROJECT
+==================================================
+
+mkdir -p ~/hive-online-learning/data
+
+cd ~/hive-online-learning/data
+
+
+==================================================
+# 3. CREATE LOCAL CSV FILES
+==================================================
+
+nano learners.csv
+
+nano courses.csv
+
+nano enrollments.csv
+
+
+# learners.csv
+
+learner_id,learner_name
+L001,Rahul
+L002,Priya
+L003,Arun
+L004,Neha
+L005,Kiran
+
+
+# courses.csv
+
+course_id,course_name,category
+C001,Python,Programming
+C002,Hadoop,BigData
+C003,Hive,BigData
+C004,Statistics,DataScience
+
+
+# enrollments.csv
+
+enrollment_id,learner_id,course_id,enrollment_date
+E001,L001,C001,2026-10-01
+E002,L001,C002,2026-10-02
+E003,L002,C001,2026-10-02
+E004,L003,C003,2026-10-03
+E005,L004,C004,2026-10-03
+
+
+==================================================
+# 4. VERIFY LOCAL FILES
+==================================================
+
+cat learners.csv
+
+cat courses.csv
+
+cat enrollments.csv
+
+
+==================================================
+# 5. CREATE HDFS DIRECTORIES
+==================================================
+
+hdfs dfs -mkdir -p /online-learning/raw/learners
+
+hdfs dfs -mkdir -p /online-learning/raw/courses
+
+hdfs dfs -mkdir -p /online-learning/raw/enrollments
+
+
+==================================================
+# 6. PUT RAW DATA INTO HDFS
+==================================================
+
+hdfs dfs -put -f learners.csv /online-learning/raw/learners/
+
+hdfs dfs -put -f courses.csv /online-learning/raw/courses/
+
+hdfs dfs -put -f enrollments.csv /online-learning/raw/enrollments/
+
+
+==================================================
+# 7. VERIFY HDFS
+==================================================
+
+hdfs dfs -ls /online-learning/raw/learners
+
+hdfs dfs -ls /online-learning/raw/courses
+
+hdfs dfs -ls /online-learning/raw/enrollments
+
+
+==================================================
+# 8. START HIVE / BEELINE
+==================================================
+hive --service metastore
+hiveserver2
+beeline -u jdbc:hive2://localhost:10000/default
+
+
+==================================================
+# 9. CREATE DATABASE
+==================================================
+
+CREATE DATABASE IF NOT EXISTS online_learning;
+
+USE online_learning;
+
+
+==================================================
+# 10. MANAGED / INTERNAL TABLE
+==================================================
+
+CREATE TABLE learners (
+    learner_id STRING,
+    learner_name STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ',';
+
+
+==================================================
+# 11. LOAD LOCAL DATA
+==================================================
+
+LOAD DATA LOCAL INPATH
+'/home/ubuntu/hive-online-learning/data/learners.csv'
+INTO TABLE learners;
+
+
+==================================================
+# 12. VERIFY MANAGED TABLE
+==================================================
+
+SELECT * FROM learners;
+
+
+==================================================
+# 13. EXTERNAL TABLE
+==================================================
+
+CREATE EXTERNAL TABLE courses (
+    course_id STRING,
+    course_name STRING,
+    category STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+LOCATION '/online-learning/raw/courses';
+
+
+==================================================
+# 14. LOAD HDFS DATA INTO ENROLLMENTS
+==================================================
+
+CREATE EXTERNAL TABLE enrollments (
+    enrollment_id STRING,
+    learner_id STRING,
+    course_id STRING,
+    enrollment_date DATE
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+LOCATION '/online-learning/raw/enrollments';
+
+
+==================================================
+# 15. VERIFY TABLES
+==================================================
+
+SHOW TABLES;
+
+SELECT * FROM learners;
+
+SELECT * FROM courses;
+
+SELECT * FROM enrollments;
+
+
+==================================================
+# 16. INNER JOIN
+==================================================
+SET hive.auto.convert.join=false;
+
+SELECT
+    l.learner_id,
+    l.learner_name,
+    c.course_name
+FROM learners l
+INNER JOIN enrollments e
+ON l.learner_id = e.learner_id
+INNER JOIN courses c
+ON e.course_id = c.course_id;
+
+
+==================================================
+# 17. LEFT OUTER JOIN
+# Learners with / without courses
+==================================================
+
+SELECT
+    l.learner_id,
+    l.learner_name,
+    e.course_id
+FROM learners l
+LEFT OUTER JOIN enrollments e
+ON l.learner_id = e.learner_id;
+
+
+==================================================
+# 18. RIGHT OUTER JOIN
+==================================================
+
+SELECT
+    l.learner_id,
+    l.learner_name,
+    e.course_id
+FROM learners l
+RIGHT OUTER JOIN enrollments e
+ON l.learner_id = e.learner_id;
+
+
+==================================================
+# 19. FULL OUTER JOIN
+==================================================
+
+SELECT
+    l.learner_id,
+    l.learner_name,
+    e.course_id
+FROM learners l
+FULL OUTER JOIN enrollments e
+ON l.learner_id = e.learner_id;
+
+
+==================================================
+# 20. LEARNERS WITH NO ENROLLMENT
+==================================================
+
+SELECT
+    l.learner_id,
+    l.learner_name
+FROM learners l
+LEFT JOIN enrollments e
+ON l.learner_id = e.learner_id
+WHERE e.learner_id IS NULL;
+
+
+==================================================
+# 21. COURSES WITH NO LEARNERS
+==================================================
+
+SELECT
+    c.course_id,
+    c.course_name
+FROM courses c
+LEFT JOIN enrollments e
+ON c.course_id = e.course_id
+WHERE e.course_id IS NULL;
+
+
+==================================================
+# 22. COURSES WITH HIGHEST ENROLLMENTS
+==================================================
+
+SELECT
+    c.course_id,
+    c.course_name,
+    COUNT(e.enrollment_id) AS enrollment_count
+FROM courses c
+JOIN enrollments e
+ON c.course_id = e.course_id
+GROUP BY c.course_id, c.course_name
+ORDER BY enrollment_count DESC;
+
+
+==================================================
+# 23. MAP-SIDE JOIN
+==================================================
+
+# Small table = courses
+# Large table = enrollments
+
+//Alternatively, force it with a hint (works regardless of the auto-convert setting in most versions):
+
+SELECT /*+ MAPJOIN(c) */
+    e.enrollment_id,
+    e.learner_id,
+    c.course_name
+FROM enrollments e
+JOIN courses c
+ON e.course_id = c.course_id;
+
+
+==================================================
+# 24. REDUCE-SIDE JOIN
+==================================================
+
+
+
+SET hive.auto.convert.join=false;
+
+SELECT
+    e.enrollment_id,
+    e.learner_id,
+    c.course_name
+FROM enrollments e
+JOIN courses c
+ON e.course_id = c.course_id;
+
+
+==================================================
+# 25. PARTITIONED TABLE
+==================================================
+
+CREATE TABLE enrollments_partitioned (
+    enrollment_id STRING,
+    learner_id STRING,
+    course_id STRING
+)
+PARTITIONED BY (
+    enrollment_date DATE
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ',';
+
+
+==================================================
+# 26. INSERT INTO PARTITIONS
+==================================================
+
+INSERT INTO TABLE enrollments_partitioned
+PARTITION (enrollment_date='2026-10-01')
+SELECT
+    enrollment_id,
+    learner_id,
+    course_id
+FROM enrollments
+WHERE enrollment_date='2026-10-01';
+
+
+INSERT INTO TABLE enrollments_partitioned
+PARTITION (enrollment_date='2026-10-02')
+SELECT
+    enrollment_id,
+    learner_id,
+    course_id
+FROM enrollments
+WHERE enrollment_date='2026-10-02';
+
+
+INSERT INTO TABLE enrollments_partitioned
+PARTITION (enrollment_date='2026-10-03')
+SELECT
+    enrollment_id,
+    learner_id,
+    course_id
+FROM enrollments
+WHERE enrollment_date='2026-10-03';
+
+
+==================================================
+# 27. SHOW PARTITIONS
+==================================================
+
+SHOW PARTITIONS enrollments_partitioned;
+
+
+==================================================
+# 28. QUERY PARTITION
+==================================================
+
+SELECT *
+FROM enrollments_partitioned
+WHERE enrollment_date='2026-10-02';
+
+
+==================================================
+# 29. PARTITION + JOIN
+==================================================
+
+SELECT
+    e.enrollment_id,
+    e.learner_id,
+    c.course_name
+FROM enrollments_partitioned e
+JOIN courses c
+ON e.course_id = c.course_id
+WHERE e.enrollment_date='2026-10-02';
+
+
+==================================================
+# 30. IMPORTANT SET COMMANDS
+==================================================
+
+
+SET hive.auto.convert.join=false;
+
+
+==================================================
+# 31. VERIFY EVERYTHING
+==================================================
+
+SHOW TABLES;
+
+SELECT * FROM learners;
+
+SELECT * FROM courses;
+
+SELECT * FROM enrollments;
+
+SELECT * FROM enrollments_partitioned;
+
+SHOW PARTITIONS enrollments_partitioned;
+
+
+==================================================
+# EXAM FLOW
+==================================================
+
+Start Hadoop
+     ↓
+Create CSV
+     ↓
+HDFS
+     ↓
+Hive Database
+     ↓
+Managed Table
+     ↓
+LOCAL INPATH
+     ↓
+External Table
+     ↓
+HDFS INPATH / LOCATION
+     ↓
+Enrollment Table
+     ↓
+INNER JOIN
+     ↓
+OUTER JOINS
+     ↓
+MAP-SIDE JOIN
+     ↓
+REDUCE-SIDE JOIN
+     ↓
+PARTITIONED TABLE
+     ↓
+INSERT PARTITION
+     ↓
+SHOW PARTITIONS
+     ↓
+QUERY PARTITION
+     ↓
+PARTITION + JOIN
+
+
+==================================================
+# EXAM MEMORY
+==================================================
+
+Managed:
+CREATE TABLE
+
+LOCAL:
+LOAD DATA LOCAL INPATH
+
+External:
+CREATE EXTERNAL TABLE
+
+HDFS:
+LOCATION / LOAD DATA INPATH
+
+Inner:
+Matching records
+
+Left:
+All left + matching right
+
+Right:
+All right + matching left
+
+Full:
+All records from both
+
+Map-side:
+hive.auto.convert.join=true
+
+Reduce-side:
+hive.auto.convert.join=false
+
+Partition:
+PARTITIONED BY
+
+Check:
+SHOW PARTITIONS

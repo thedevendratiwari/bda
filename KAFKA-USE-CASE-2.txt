@@ -1,161 +1,51 @@
-
-# Real-Time Bank Transaction Pipeline
-
-// 1. Problem Statement
-
-A bank receives customer payment transactions continuously.
-
-The bank wants to:
-
-1. Send payment transactions to Kafka in real time.
-2. Use a fraud-detection service to consume those transactions.
-3. Automatically copy transaction-log data into an archive without writing a custom program.
-
-We will implement this using:
+cd ~
+wget -c https://downloads.apache.org/kafka/4.2.2/kafka_2.13-4.2.2.tgz
 
 
-//PART A
+tar -xzf kafka_2.13-4.2.2.tgz
 
-Payment Application
-       |
-       | Kafka Producer
-       v
- Kafka Topic: payments
-       |
-       | Consumer
-       v
-Fraud Detection Service
-
-
-And:
-
-
-//PART B
-
-Core Banking Log File
-       |
-       | Kafka Connect Source
-       v
-Kafka Topic: bank-transactions
-       |
-       | Kafka Connect Sink
-       v
-Archive File
-
-
-2. First Understand the Important Components
-
-Before executing, understand these terms.
-
-| Component        | Simple meaning                                                            
-
-| Producer         | Sends messages to Kafka                                                   |
-| Topic            | Stores/organizes Kafka messages                                           |
-| Partition        | Subdivision of a topic for parallel processing                            |
-| Consumer         | Reads messages from Kafka                                                 |
-| Consumer Group   | Group of consumers sharing the work                                       |
-| Kafka Connect    | Moves data between Kafka and external systems without writing custom code |
-| Source Connector | External system → Kafka                                                   |
-| Sink Connector   | Kafka → External system                                                   |
-| Offset           | Position of a message in a partition                                      
-
-// Most important point
-
-Kafka Connect is not another Kafka broker.
-
-It is a framework/application that sits outside Kafka:
-
-
-External System
-      |
-      v
-Kafka Connect
-      |
-      v
-Kafka
-
-
-or:
-
-
-Kafka
-  |
-  v
-Kafka Connect
-  |
-  v
-External System
-
-
----
-
-# 3. Check Your Kafka Installation
-
-Open Terminal 1.
-
-
-cd ~/kafka_2.13-3.7.0
-
-
-Check Kafka:
-
+cd ~/kafka_2.13-4.2.2
 
 bin/kafka-topics.sh --version
 
 
-Expected:
 
 
-3.7.0
+///////////////////////////
+cd ~
 
+cd ~/kafka_2.13-3.7.2
 
-Check Java:
+wget -c https://repo.huaweicloud.com/repository/apache/kafka/3.7.2/kafka_2.13-3.7.2.tgz
 
+tar -xzf kafka_2.13-3.7.2.tgz
+
+cd ~/kafka_2.13-3.7.2
 
 java -version
 
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+export PATH=$JAVA_HOME/bin:$PATH
 
-You should have Java 8:
+KAFKA_CLUSTER_ID="$(bin/kafka-storage.sh random-uuid)"
 
+echo $KAFKA_CLUSTER_ID
 
-openjdk version "1.8.0_504"
-
-
-
-# 4. Start Kafka Server
-
-You are using Kafka 3.7.0 with KRaft.
-
-//In Terminal 1:
+bin/kafka-storage.sh format \
+-t "d7ypXE0ERQuwQ6Y3PhUWSg" \
+-c config/kraft/server.properties
 
 
-cd ~/kafka_2.13-3.7.0
-bin/kafka-server-start.sh config/kraft/server.properties
+//consider this terminal 1
+//start the Kafka server
+
+bin/kafka-server-start.sh \
+config/kraft/server.properties
 
 
-Wait until you see something similar to:
 
 
-Kafka Server started
-
-
-Keep this terminal running.
-
-Do not press `Ctrl+C`.
-
-
-# PART A — PRODUCER AND CONSUMER
-
-// 5. Create the `payments` Topic
-
-//Open Terminal 2.
-
-
-cd ~/kafka_2.13-3.7.0
-
-
-Create the topic:
-
+//Terminal 2
 
 bin/kafka-topics.sh \
 --create \
@@ -164,80 +54,32 @@ bin/kafka-topics.sh \
 --partitions 3 \
 --replication-factor 1
 
-
-Expected:
-
-
-Created topic payments.
-
-
----
-
-# 6. What Did We Just Create?
-
-We created:
-
-
-Topic: payments
-Partitions: 3
-Replication factor: 1
-
-
-Think of it as:
-
-
-payments
-   |
-   +---- Partition 0
-   |
-   +---- Partition 1
-   |
-   +---- Partition 2
-
-
-Why 3 partitions?
-
-Because multiple consumers can process the data in parallel.
-
-# 7. Verify the Topic
-
-Run:
-
-
+//Verify topic
 bin/kafka-topics.sh \
 --describe \
 --topic payments \
 --bootstrap-server localhost:9092
 
 
-Expected output will look similar to:
+//Terminal 3
+cd ~/kafka_2.13-3.7.2
+
+bin/kafka-console-producer.sh \
+--topic payments \
+--bootstrap-server localhost:9092 \
+--property parse.key=true \
+--property key.separator="|"
+
+>
+acc101|{"txn_id":1,"amount":2500,"type":"DEBIT"}
+acc102|{"txn_id":2,"amount":99000,"type":"CREDIT"}
+acc101|{"txn_id":3,"amount":120,"type":"DEBIT"}
+acc103|{"txn_id":4,"amount":45000,"type":"DEBIT"}
+acc101|{"txn_id":5,"amount":800,"type":"DEBIT"}
 
 
-Topic: payments
-PartitionCount: 3
-ReplicationFactor: 1
+//Terminal 4
 
-
-You will also see:
-
-
-Partition: 0
-Partition: 1
-Partition: 2
-
-
-The exact leader/replica values may differ.
-
-
-# 8. Start the Fraud Consumer
-
-//Open Terminal 3.
-
-
-cd ~/kafka_2.13-3.7.0
-
-
-//Run:
 bin/kafka-console-consumer.sh \
 --topic payments \
 --bootstrap-server localhost:9092 \
@@ -247,454 +89,67 @@ bin/kafka-console-consumer.sh \
 --property print.partition=true
 
 
-The terminal will wait.
+//once you added transactions in producer check it in consumer.
 
-//You may see:
-That is normal.
+//PART A COMPLETED
 
-It is waiting for messages.
+//PART B STARTED (OPEN NEW TERMINAL)
 
-
-9. What Is This Consumer Doing?
-
-This represents our:
-Fraud Detection Service
-
-//It is connected to:
-payments
-
-
-//using consumer group:
-fraud-service
-
-
-//So:
-Kafka Topic
-    |
-    v
-payments
-    |
-    v
-fraud-service
-    |
-    v
-Fraud Detection Consumer
-
-
-
-# 10. Start the Producer
-
-//Open Terminal 4.
-cd ~/kafka_2.13-3.7.0
-
-//Run:
-bin/kafka-console-producer.sh \
---topic payments \
---bootstrap-server localhost:9092 \
---property parse.key=true \
---property key.separator="|"
-
-//You will see:
-
-
->
-This means the producer is ready.
-
-# 11. Send Bank Transactions
-
-Enter these one at a time.
-
-
-acc101|{"txn_id":1,"amount":2500,"type":"DEBIT"}
-
-
-
-acc102|{"txn_id":2,"amount":99000,"type":"CREDIT"}
-
-
-
-acc101|{"txn_id":3,"amount":120,"type":"DEBIT"}
-
-
-
-acc103|{"txn_id":4,"amount":45000,"type":"DEBIT"}
-
-
-
-acc101|{"txn_id":5,"amount":800,"type":"DEBIT"}
-
-# 12. Expected Consumer Output
-
-Look at Terminal 3.
-
-You should see output similar to:
-
-
-Partition:1    acc101    {"txn_id":1,"amount":2500,"type":"DEBIT"}
-Partition:2    acc102    {"txn_id":2,"amount":99000,"type":"CREDIT"}
-Partition:1    acc101    {"txn_id":3,"amount":120,"type":"DEBIT"}
-Partition:0    acc103    {"txn_id":4,"amount":45000,"type":"DEBIT"}
-Partition:1    acc101    {"txn_id":5,"amount":800,"type":"DEBIT"}
-
-Your exact partition numbers may differ.
-
-# 13. Important Observation — Same Account
-
-//Notice:
-acc101
-acc101
-acc101
-goes to the same partition.
-
-Why?
-
-Because Kafka uses the message key:
-
-
-acc101
-to determine the partition.
-
-Therefore:
-Same key
-   ↓
-Same partition
-   ↓
-Ordering maintained for that key
-
-
-This is very important in banking.
-
-For example:
-
-
-acc101
-Transaction 1
-Transaction 3
-Transaction 5
-
-
-should maintain their order.
-
-
-# 14. Check Consumer Group
-
-//Go to Terminal 2.
-
-Run:
-bin/kafka-consumer-groups.sh \
---bootstrap-server localhost:9092 \
---describe \
---group fraud-service
-
-
-You should see something similar to:
-
-
-GROUP          TOPIC     PARTITION   CURRENT-OFFSET   LOG-END-OFFSET   LAG
-fraud-service  payments  0           ...              ...              0
-fraud-service  payments  1           ...              ...              0
-fraud-service  payments  2           ...              ...              0
-
-
-The important value is:
-
-
-LAG = 0
-
-//Meaning:
-Producer messages = Consumer processed messages
-
-The consumer is caught up.
-
-
-# 15. PART A Complete
-
-We have now implemented:
-
-
-Bank Payment Application
-          |
-          | Producer
-          v
-    payments topic
-          |
-          | Consumer
-          v
-   fraud-service
-
-
----
-
-# PART B — KAFKA CONNECT
-
-Now we implement the second requirement.
-
-The bank has a log file:
-
-
-transactions.log
-
-
-We want:
-
-
-transactions.log
-       |
-       v
-Source Connector
-       |
-       v
-Kafka topic
-bank-transactions
-       |
-       v
-Sink Connector
-       |
-       v
-transactions_archive.txt
-
-
-# 16. What Is Kafka Connect?
-
-Kafka Connect is a framework provided with Kafka for moving data between Kafka and external systems.
-
-//Instead of writing a program like:
-Python program
-read file
-connect Kafka
-send message
-handle offsets
-handle errors
-
-we configure a connector.
-
-//For example:
-Source Connector
-
-File
- |
- v
-Kafka
-
-
-And:
-
-
-Sink Connector
-
-Kafka
- |
- v
-File
-
-
-So Kafka Connect gives us:
-
-
-Configuration
-+
-Connector
-=
-Data movement
-
-
-with no custom producer/consumer program required.
-
-
-# 17. Source Connector
-
-A Source Connector brings data into Kafka.
-
-
-External System
-       |
-       v
-Source Connector
-       |
-       v
-Kafka
-
-
-//Our example:
-
-
-transactions.log
-       |
-       v
-FileStreamSource
-       |
-       v
-bank-transactions
-
-
-# 18. Sink Connector
-
-A Sink Connector takes data out of Kafka.
-
-
-Kafka
-  |
-  v
-Sink Connector
-  |
-  v
-External System
-
-
-//Our example:
-
-
-bank-transactions
-       |
-       v
-FileStreamSink
-       |
-       v
-transactions_archive.txt
-
-
-// Simple memory trick
-
-
-SOURCE = comes into Kafka
-
-SINK = goes out of Kafka
-
-
-# 19. Create the Connect Demo Folders
-
-Open Terminal 2 or another terminal.
-
-Run:
-
-
+cd ~/kafka_2.13-3.7.2
 mkdir -p ~/connect-demo/source
 mkdir -p ~/connect-demo/sink
 
-
-Check:
-
-
-ls -R ~/connect-demo
-
-
-Expected:
-
-
-/home/sari/connect-demo:
-sink
-source
-
-/home/sari/connect-demo/sink:
-
-/home/sari/connect-demo/source:
-
-# 20. Create the Bank Transaction Log
-
-Since you prefer `nano`, use:
-
-
 nano ~/connect-demo/source/transactions.log
 
-
-Enter:
-
-json
 {"txn_id":101,"account":"acc201","amount":1500,"city":"Bengaluru"}
 {"txn_id":102,"account":"acc202","amount":32000,"city":"Mumbai"}
 {"txn_id":103,"account":"acc203","amount":700,"city":"Delhi"}
-
-
-Save:
-
-
-Ctrl + O
-Enter
-Ctrl + X
-
-
-Check:
-
 
 cat ~/connect-demo/source/transactions.log
 
-
-Expected:
-
-
-{"txn_id":101,"account":"acc201","amount":1500,"city":"Bengaluru"}
-{"txn_id":102,"account":"acc202","amount":32000,"city":"Mumbai"}
-{"txn_id":103,"account":"acc203","amount":700,"city":"Delhi"}
-
-
----
-
-# 21. Enable the File Connector
-
-Kafka Connect needs to know where its connector plugins are located.
-
-Go to:
-
-
-cd ~/kafka_2.13-3.7.0
-
-
-Check:
-
-
 ls libs/connect-file*
 
+nano ~/kafka_2.13-3.7.2/config/connect-standalone.properties
 
-You should see something similar to:
+//Go to the bottom of the file and add:
 
+plugin.path=/home/ubuntu/kafka_2.13-3.7.2/libs
 
-libs/connect-file-3.7.0.jar
+//Save:
 
-
-Now edit:
-
-
-nano config/connect-standalone.properties
-
-
-Find:
-
-
-plugin.path=
-
-
-or a commented `plugin.path`.
-
-Set it to:
-
-
-plugin.path=/home/sari/kafka_2.13-3.7.0/libs/connect-file-3.7.0.jar
-
-
-Save:
-
-
-Ctrl + O
+Ctrl+O
 Enter
-Ctrl + X
+Ctrl+X
+
+grep '^plugin.path' ~/kafka_2.13-3.7.2/config/connect-standalone.properties
+
+plugin.path=/home/ubuntu/kafka_2.13-3.7.2/libs
+
+//
+nano ~/connect-demo/file-source.properties
+
+name=txn-file-source
+connector.class=FileStreamSource
+tasks.max=1
+file=/home/ubuntu/connect-demo/source/transactions.log
+topic=bank-transactions
+key.converter=org.apache.kafka.connect.storage.StringConverter
+value.converter=org.apache.kafka.connect.storage.StringConverter
+
+//
+nano ~/connect-demo/file-sink.properties
+
+name=txn-file-sink
+connector.class=FileStreamSink
+tasks.max=1
+file=/home/ubuntu/connect-demo/sink/transactions_archive.txt
+topics=bank-transactions
+key.converter=org.apache.kafka.connect.storage.StringConverter
+value.converter=org.apache.kafka.connect.storage.StringConverter
 
 
-Verify:
-
-
-grep plugin.path config/connect-standalone.properties
-
-
-Expected:
-
-
-plugin.path=/home/sari/kafka_2.13-3.7.0/libs/connect-file-3.7.0.jar
-
-
-# 22. Create Kafka Topic for Connect
-
-Run:
-
+//OPEN TERMINAL 2
+cd ~/kafka_2.13-3.7.2
 
 bin/kafka-topics.sh \
 --create \
@@ -704,312 +159,27 @@ bin/kafka-topics.sh \
 --replication-factor 1
 
 
-Expected:
-
-
-Created topic bank-transactions.
-
-
-Verify:
-
-
 bin/kafka-topics.sh \
 --describe \
 --topic bank-transactions \
 --bootstrap-server localhost:9092
 
 
-You should see:
-
-
-Topic: bank-transactions
-PartitionCount: 1
-ReplicationFactor: 1
-
-
-# 23. Create Source Connector Configuration
-
-Create:
-
-
-nano ~/connect-demo/file-source.properties
-
-
-Enter:
-
-properties
-name=txn-file-source
-connector.class=FileStreamSource
-tasks.max=1
-file=/home/sari/connect-demo/source/transactions.log
-topic=bank-transactions
-key.converter=org.apache.kafka.connect.storage.StringConverter
-value.converter=org.apache.kafka.connect.storage.StringConverter
-
-
-Save:
-
-
-Ctrl + O
-Enter
-Ctrl + X
-
-# 24. Understand the Source Configuration
-
-This line:
-
-properties
-name=txn-file-source
-
-
-means connector name is:
-
-
-txn-file-source
-
-
-This:
-
-properties
-connector.class=FileStreamSource
-
-
-means:
-
-
-Use FileStreamSource
-
-
-This:
-
-properties
-file=/home/sari/connect-demo/source/transactions.log
-
-
-means:
-
-
-Read this file
-
-
-This:
-
-properties
-topic=bank-transactions
-
-
-means:
-
-
-Send the file data to this Kafka topic
-
-
-Therefore:
-
-
-transactions.log
-       |
-       v
-FileStreamSource
-       |
-       v
-bank-transactions
-
-# 25. Create Sink Connector Configuration
-
-Create:
-
-
-nano ~/connect-demo/file-sink.properties
-
-
-Enter:
-
-properties
-name=txn-file-sink
-connector.class=FileStreamSink
-tasks.max=1
-file=/home/sari/connect-demo/sink/transactions_archive.txt
-topics=bank-transactions
-key.converter=org.apache.kafka.connect.storage.StringConverter
-value.converter=org.apache.kafka.connect.storage.StringConverter
-
-
-Save:
-
-
-Ctrl + O
-Enter
-Ctrl + X
-
-
-# 26. Understand the Sink Configuration
-
-This:
-
-properties
-connector.class=FileStreamSink
-
-
-means:
-
-
-Use FileStreamSink
-
-
-This:
-
-properties
-topics=bank-transactions
-
-
-means:
-
-
-Read data from bank-transactions
-
-
-This:
-
-properties
-file=/home/sari/connect-demo/sink/transactions_archive.txt
-
-
-means:
-
-
-Write the Kafka data here
-
-
-Therefore:
-
-
-bank-transactions
-       |
-       v
-FileStreamSink
-       |
-       v
-transactions_archive.txt
-
-
-# 27. Start Kafka Connect
-
-This is important.
-
-Kafka Connect needs to run as a separate process.
-
-Open Terminal 5.
-
-Run:
-
-
-cd ~/kafka_2.13-3.7.0
-
-
-Then:
-
+//OPEN TERMINAL 5
+cd ~/kafka_2.13-3.7.2
 
 bin/connect-standalone.sh \
 config/connect-standalone.properties \
 ~/connect-demo/file-source.properties \
 ~/connect-demo/file-sink.properties
 
+//OPEN TERMINAL 6
 
-Keep this terminal running.
+cd ~/kafka_2.13-3.7.2
 
-Do not press `Ctrl+C`.
+curl -s localhost:8083/connectors
 
----
-
-# 28. What Happens Internally?
-
-Kafka Connect starts two connectors:
-
-
-txn-file-source
-
-
-and:
-
-
-txn-file-sink
-
-
-The complete flow becomes:
-
-
-transactions.log
-       |
-       | Source Connector
-       v
-bank-transactions Kafka topic
-       |
-       | Sink Connector
-       v
-transactions_archive.txt
-
-
-
-# 29. Expected Kafka Connect Output
-
-The terminal will have many INFO messages.
-
-You should eventually see messages indicating the connectors/tasks have started.
-
-You may see messages similar to:
-
-
-INFO Created connector txn-file-source
-
-
-and:
-
-
-INFO Created connector txn-file-sink
-
-
-and task state such as:
-
-
-RUNNING
-
-
-Do not worry if the output contains many Kafka Connect INFO messages.
-
----
-
-# 30. Verify the Sink File
-
-Open another terminal.
-
-Run:
-
-
-cat ~/connect-demo/sink/transactions_archive.txt
-
-
-Expected:
-
-
-{"txn_id":101,"account":"acc201","amount":1500,"city":"Bengaluru"}
-{"txn_id":102,"account":"acc202","amount":32000,"city":"Mumbai"}
-{"txn_id":103,"account":"acc203","amount":700,"city":"Delhi"}
-
-
-This proves:
-
-
-File
- ↓
-Source Connector
- ↓
-Kafka
- ↓
-Sink Connector
- ↓
-File
-
+curl -s localhost:8083/connectors/txn-file-source/status
 
 # 31. Verify the Kafka Topic
 
@@ -1039,530 +209,14 @@ Expected:
 
 This proves that the source connector successfully put the data into Kafka.
 
-# 32. Test Real-Time File Streaming
+cat ~/connect-demo/sink/transactions_archive.txt
 
-Now we will test the important part.
-
-The source connector is continuously watching:
-
-
-transactions.log
-
-
-Add another transaction.
-
-
+//ADD NEW
 echo '{"txn_id":104,"account":"acc204","amount":88000,"city":"Chennai"}' >> ~/connect-demo/source/transactions.log
-
-
-Add one more:
-
 
 echo '{"txn_id":105,"account":"acc205","amount":260,"city":"Hyderabad"}' >> ~/connect-demo/source/transactions.log
 
-
-Wait a few seconds:
-
-
-sleep 5
-
-
-Now:
-
-
 cat ~/connect-demo/sink/transactions_archive.txt
 
 
-Expected:
 
-
-{"txn_id":101,"account":"acc201","amount":1500,"city":"Bengaluru"}
-{"txn_id":102,"account":"acc202","amount":32000,"city":"Mumbai"}
-{"txn_id":103,"account":"acc203","amount":700,"city":"Delhi"}
-{"txn_id":104,"account":"acc204","amount":88000,"city":"Chennai"}
-{"txn_id":105,"account":"acc205","amount":260,"city":"Hyderabad"}
-
-
-That demonstrates streaming.
-
----
-
-# 33. What Exactly Happened?
-
-When you executed:
-
-
-echo '{"txn_id":104,...}' >> transactions.log
-
-
-the source connector noticed the new line.
-
-Then:
-
-
-New line
-   ↓
-FileStreamSource
-   ↓
-Kafka
-   ↓
-bank-transactions
-   ↓
-FileStreamSink
-   ↓
-transactions_archive.txt
-
-
-You did not write a Python/Java program.
-
-That is the main purpose of Kafka Connect.
-
-# 34. Check Kafka Connect REST API
-
-Kafka Connect exposes a REST API.
-
-Run:
-
-
-curl -s localhost:8083/connectors
-
-
-Expected:
-
-json
-["txn-file-source","txn-file-sink"]
-
-
-Now check source:
-
-
-curl -s localhost:8083/connectors/txn-file-source/status
-
-
-You should see JSON containing:
-
-json
-"state":"RUNNING"
-
-
-Check sink:
-
-
-curl -s localhost:8083/connectors/txn-file-sink/status
-
-
-Again:
-
-json
-"state":"RUNNING"
-
-
-
-# 35. Complete Architecture
-
-Your final project is:
-
-
-                    PART A
-
-              Payment Application
-                      |
-                      | Producer
-                      v
-              +---------------+
-              | payments      |
-              | Kafka Topic   |
-              | 3 partitions  |
-              +---------------+
-                      |
-                      | Consumer
-                      v
-              Fraud Service
-              Consumer Group
-              "fraud-service"
-
-
-                    PART B
-
-             Core Banking System
-                      |
-                      v
-              transactions.log
-                      |
-                      | Source Connector
-                      v
-              +------------------+
-              | bank-transactions|
-              | Kafka Topic      |
-              +------------------+
-                      |
-                      | Sink Connector
-                      v
-          transactions_archive.txt
-
-
----
-
-# 36. Source vs Sink — Very Simple
-
-Remember this for your students:
-
-// Source Connector
-
-
-SOURCE → Kafka
-
-
-Example:
-
-
-File → Kafka
-
-
-It brings data into Kafka.
-
-// Sink Connector
-
-
-Kafka → SINK
-
-
-Example:
-
-
-Kafka → File
-
-
-It takes data out of Kafka.
-
----
-
-# 37. Why Do We Need Kafka in the Middle?
-
-You might ask:
-
-> Why not simply copy `transactions.log` to `transactions_archive.txt`?
-
-Because in a real corporate system, Kafka acts as a central streaming platform.
-
-For example:
-
-
-Core Banking
-     |
-     v
-   Kafka
-     |
-     +------> Fraud Detection
-     |
-     +------> Analytics
-     |
-     +------> Data Lake
-     |
-     +------> Reporting
-
-
-One transaction stream can therefore be consumed by multiple applications.
-
----
-
-# 38. What Is the Sink in This Project?
-
-Our sink is:
-
-
-transactions_archive.txt
-
-
-Technically, the FileStreamSink connector is the component that writes to it.
-
-So:
-
-
-Kafka
-  |
-  v
-FileStreamSink
-  |
-  v
-transactions_archive.txt
-
-
-In a real company, the sink could instead be:
-
-
-Kafka
-  ↓
-S3
-
-
-or:
-
-
-Kafka
-  ↓
-HDFS
-
-
-or:
-
-
-Kafka
-  ↓
-Snowflake
-
-
-or:
-
-
-Kafka
-  ↓
-Elasticsearch
-
-
-or:
-
-
-Kafka
-  ↓
-JDBC Database
-
-
-Our text file is only a lab substitute for a real archive/data lake.
-
----
-
-# 39. What Is the Producer Doing?
-
-In Part A:
-
-
-Producer
-
-
-creates/sends payment events.
-
-For example:
-
-
-acc101|{"txn_id":1,"amount":2500,"type":"DEBIT"}
-
-
-The producer sends this to:
-
-
-payments
-
-
----
-
-# 40. What Is the Consumer Doing?
-
-The consumer represents:
-
-
-Fraud Detection Service
-
-
-It reads:
-
-
-payments
-
-
-and can analyze transactions.
-
-For example:
-
-
-amount = 99000
-type = CREDIT
-
-
-A real fraud service could apply rules such as:
-
-
-IF amount > 50000
-THEN flag transaction
-
-
-We are not implementing the fraud algorithm here; the purpose is to demonstrate Kafka producer → topic → consumer.
-
----
-
-# 41. What Is Kafka Connect Doing?
-
-Kafka Connect handles:
-
-
-External System ↔ Kafka
-
-
-without us writing custom producer/consumer code.
-
-Our example:
-
-
-transactions.log
-       ↓
-Source Connector
-       ↓
-Kafka
-       ↓
-Sink Connector
-       ↓
-transactions_archive.txt
-
-
----
-
-# 42. One-Line Definitions for Lab/Interview
-
-| Term               | One-line answer                                                
-
-| Kafka              | Distributed platform for real-time event streaming             |
-| Producer           | Sends events/messages to Kafka                                 |
-| Consumer           | Reads events/messages from Kafka                               |
-| Topic              | Named stream where Kafka stores events                         |
-| Partition          | Ordered subdivision of a Kafka topic                           |
-| Offset             | Position of a message inside a partition                       |
-| Consumer Group     | Group of consumers sharing topic partitions                    |
-| Consumer Lag       | Difference between produced and consumed offsets               |
-| Kafka Connect      | Framework for moving data between Kafka and external systems   |
-| Source Connector   | Moves external data into Kafka                                 |
-| Sink Connector     | Moves Kafka data to an external system                         |
-| Converter          | Converts data between Kafka Connect/internal and Kafka formats |
-| Standalone Mode    | Kafka Connect running as a single worker                       |
-| Distributed Mode   | Multiple Connect workers working together                      |
-| Replication Factor | Number of copies of each partition                             |
-
----
-
-# 43. The Most Important Difference
-
-Students often confuse these:
-
-// Producer
-
-
-Application → Kafka
-
-
-Usually requires application code/API.
-
-// Consumer
-
-
-Kafka → Application
-
-
-Usually requires application code/API.
-
-// Kafka Connect
-
-
-External System ↔ Kafka
-
-
-Usually configured using connector properties instead of writing custom data-movement code.
-
----
-
-# 44. Final Practical Flow
-
-Your students should be able to explain the entire lab like this:
-
-> The payment application acts as a Kafka producer and sends bank transactions to the `payments` topic. The fraud-detection service acts as a consumer in the `fraud-service` consumer group and processes the transactions in real time. For the second flow, Kafka Connect's Source Connector reads transactions from the core banking log file and publishes them to the `bank-transactions` topic. The Sink Connector then consumes those records from Kafka and writes them to the archive file. Thus, Kafka Connect provides configuration-based data movement between external systems and Kafka without writing custom producer or consumer code.
-
----
-
-# 45. Final Commands to Remember
-
-// Start Kafka
-
-
-cd ~/kafka_2.13-3.7.0
-bin/kafka-server-start.sh config/kraft/server.properties
-
-
-// Create topic
-
-
-bin/kafka-topics.sh --create \
---topic payments \
---bootstrap-server localhost:9092 \
---partitions 3 \
---replication-factor 1
-
-
-// Start consumer
-
-
-bin/kafka-console-consumer.sh \
---topic payments \
---bootstrap-server localhost:9092 \
---group fraud-service \
---from-beginning
-
-
-// Start producer
-
-
-bin/kafka-console-producer.sh \
---topic payments \
---bootstrap-server localhost:9092
-
-
-// Start Kafka Connect
-
-
-cd ~/kafka_2.13-3.7.0
-
-bin/connect-standalone.sh \
-config/connect-standalone.properties \
-~/connect-demo/file-source.properties \
-~/connect-demo/file-sink.properties
-
-
-// Check connectors
-
-
-curl -s localhost:8083/connectors
-
-
-// Check source status
-
-
-curl -s localhost:8083/connectors/txn-file-source/status
-
-
-// Check sink status
-
-
-curl -s localhost:8083/connectors/txn-file-sink/status
-
-
-// Check archive
-
-
-cat ~/connect-demo/sink/transactions_archive.txt
-
-
-The key diagram to remember is:
-
-
-             PART A
-Producer → Kafka Topic → Consumer
-                         ↓
-                   Fraud Service
-
-
-             PART B
-File → Source Connector → Kafka Topic
-                            ↓
-                      Sink Connector
-                            ↓
-                       Archive File
-
-
-This gives you both Kafka Producer/Consumer and Kafka Connect Source/Sink in one practical bank use case.

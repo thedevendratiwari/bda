@@ -1,0 +1,113 @@
+USE CASE- HBase
+
+//Check HBase environment
+
+hbase version
+
+//Expected:
+HBase 2.4.18
+//
+echo $HBASE_HOME
+
+//Expected:
+
+/opt/hbase
+
+which hbase
+
+//Expected:
+
+/opt/hbase/bin/hbase
+
+//Start HBase
+
+start-hbase.sh
+
+//Wait a few seconds, then:
+
+jps
+
+//You should see:
+
+HMaster
+
+
+//Open HBase shell
+
+hbase shell
+
+//You should get:
+
+hbase(main):001:0>
+
+```bash
+# Step 1: Start HBase and open the shell
+jps
+start-hbase.sh
+hbase shell
+```
+
+
+# Step 2: Create table
+create 'customer_profiles', 'personal', 'service'
+list
+
+# Step 3: Describe table
+describe 'customer_profiles'
+
+# Step 4: Insert CUST1001
+put 'customer_profiles', 'CUST1001', 'personal:name', 'Rahul Sharma'
+put 'customer_profiles', 'CUST1001', 'personal:city', 'Bengaluru'
+put 'customer_profiles', 'CUST1001', 'personal:mobile', '9876543210'
+put 'customer_profiles', 'CUST1001', 'service:plan', '5G Premium'
+put 'customer_profiles', 'CUST1001', 'service:status', 'Active'
+put 'customer_profiles', 'CUST1001', 'service:data_usage', '42GB'
+
+# Step 5: Get one row
+get 'customer_profiles', 'CUST1001'
+
+# Step 6: Insert CUST1002 and CUST1003
+put 'customer_profiles', 'CUST1002', 'personal:name', 'Priya Verma'
+put 'customer_profiles', 'CUST1002', 'personal:city', 'Bhopal'
+put 'customer_profiles', 'CUST1002', 'personal:mobile', '9876543211'
+put 'customer_profiles', 'CUST1002', 'service:plan', '5G Basic'
+put 'customer_profiles', 'CUST1002', 'service:status', 'Active'
+put 'customer_profiles', 'CUST1002', 'service:data_usage', '18GB'
+
+put 'customer_profiles', 'CUST1003', 'personal:name', 'Amit Patel'
+put 'customer_profiles', 'CUST1003', 'personal:city', 'Mumbai'
+put 'customer_profiles', 'CUST1003', 'personal:mobile', '9876543212'
+put 'customer_profiles', 'CUST1003', 'service:plan', '5G Premium'
+put 'customer_profiles', 'CUST1003', 'service:status', 'Inactive'
+put 'customer_profiles', 'CUST1003', 'service:data_usage', '5GB'
+
+# Step 7: Scan all rows
+scan 'customer_profiles'
+
+# Step 8: Count rows (expected: 3)
+count 'customer_profiles'
+
+# Step 9: Update plan
+put 'customer_profiles', 'CUST1001', 'service:plan', '5G Unlimited'
+get 'customer_profiles', 'CUST1001'
+
+# Step 10: Delete a column
+delete 'customer_profiles', 'CUST1001', 'personal:mobile'
+get 'customer_profiles', 'CUST1001'
+
+# Step 11: Delete a full row
+deleteall 'customer_profiles', 'CUST1003'
+get 'customer_profiles', 'CUST1003'
+count 'customer_profiles'
+
+# Step 12: Describe and list
+describe 'customer_profiles'
+list
+
+# Step 13: Disable and drop
+disable 'customer_profiles'
+is_disabled 'customer_profiles'
+drop 'customer_profiles'
+list
+
+

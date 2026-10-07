@@ -1,0 +1,692 @@
+//USE CASE 6:
+
+Telecom Customer Usage ETL Pipeline using Airflow, HDFS and Hive
+
+// Problem Statement
+
+A telecom company collects daily customer usage information in a CSV file. The file contains details such as customer ID, mobile plan, call minutes, SMS count, data consumed, usage date and telecom circle.
+
+The company wants to build a simple ETL pipeline to process this data automatically.
+
+You are required to develop an Airflow-based ETL pipeline with the following stages:
+
+//1. Extract
+
+Read the telecom usage CSV file from the given input location.
+
+The input data should contain the following fields:
+
+* usage_id
+* customer_id
+* plan
+* call_minutes
+* sms_count
+* data_gb
+* usage_date
+* circle
+
+
+//nano telecom_usage.csv
+
+//Store the raw input data in HDFS.
+
+usage_id,customer_id,plan,call_minutes,sms_count,data_gb,usage_date,circle
+U001,C101,Premium,450,120,8.5,2026-09-25,Bangalore
+U002,C102,Basic,120,45,2.3,2026-09-25,Mysore
+U003,C103,Premium,620,180,15.2,2026-09-25,Bangalore
+U004,C104,Basic,210,60,4.5,2026-09-26,Chennai
+U005,C105,Premium,580,150,10.5,2026-09-26,Hyderabad
+U006,C106,Basic,95,30,1.8,2026-09-26,Mangalore
+U007,C107,Premium,710,220,18.7,2026-09-27,Bangalore
+U008,C108,Basic,165,55,6.2,2026-09-27,Mysore
+U009,C109,Premium,490,135,9.9,2026-09-27,Chennai
+U010,C110,Basic,250,75,10.0,2026-09-28,Hyderabad
+U011,C111,Premium,530,160,12.4,2026-09-28,Bangalore
+U012,C112,Basic,140,40,3.7,2026-09-28,Mangalore
+U013,C113,Premium,680,200,20.1,2026-09-29,Chennai
+U014,C114,Basic,190,65,7.5,2026-09-29,Mysore
+U015,C115,Premium,455,110,9.5,2026-09-29,Hyderabad
+//2. Load Raw Data into Hive
+
+Create a Hive table named:
+
+text
+telecom_usage_raw
+
+
+Load the data from HDFS into this table.
+
+The raw table should preserve the original data without applying any transformation.
+
+//3. Transform
+
+The business team wants to categorize customers based on their data usage.
+
+Apply the following business requirement:
+
+> Customers who consume 10 GB or more data should be classified as HIGH usage customers. All other customers should be classified as NORMAL usage customers.
+
+Create a transformed Hive table named:
+
+text
+telecom_usage_final
+
+
+The final table should contain all the original columns along with a new column:
+
+text
+usage_category
+
+
+The value of usage_category must be derived from data_gb according to the business requirement.
+
+//4. Airflow Orchestration
+
+Create an Airflow DAG to automate the complete pipeline.
+
+The DAG should perform the activities in the following order:
+
+text
+Input CSV
+   ↓
+Store Raw Data in HDFS
+   ↓
+Create/Load Hive Raw Table
+   ↓
+Apply Transformation
+   ↓
+Create Hive Final Table
+
+
+The tasks must execute in the correct sequence using Airflow dependencies.
+
+//Expected Output
+
+The final Hive table should contain data similar to:
+
+| usage_id | customer_id | plan    | data_gb | circle    | usage_category |
+
+| U001     | C101        | Premium |     8.5 | Bangalore | NORMAL         |
+| U002     | C102        | Basic   |     2.3 | Mysore    | NORMAL         |
+| U003     | C103        | Premium |    15.2 | Bangalore | HIGH           |
+| U004     | C104        | Basic   |     4.5 | Chennai   | NORMAL         |
+| U005     | C105        | Premium |    10.5 | Hyderabad | HIGH           |
+
+// Requirements
+
+Students should:
+
+1. Create the required project directory structure.
+2. Prepare the telecom usage input CSV file.
+3. Upload/store the raw data in HDFS.
+4. Create the Hive raw table.
+5. Load the data into the raw table.
+6. Implement the required business transformation.
+7. Create the final Hive table.
+8. Create an Airflow DAG to orchestrate the ETL process.
+9. Execute the DAG successfully.
+10. Verify the final output using Hive queries.
+
+// Verification
+
+Students must demonstrate:
+
+* HDFS contains the raw input data.
+* telecom_usage_raw contains the original records.
+* telecom_usage_final contains the transformed records.
+* usage_category is correctly generated based on data_gb.
+* The complete workflow is successfully executed through Airflow.
+
+// Important
+
+Do not modify the original raw data while performing the transformation.
+The transformation should be applied while creating the final Hive table.
+
+"Students are expected to write the required Hive query and Airflow DAG based on the above business requirement".
+
+#####################################################################################################################
+                                                   SOLUTION
+#####################################################################################################################
+# USE CASE 6: TELECOM CUSTOMER USAGE ETL
+# Airflow + HDFS + Hive
+
+==================================================
+# 1. PROJECT DIRECTORY
+==================================================
+
+mkdir -p ~/telecom-usage-etl/data
+cd ~/telecom-usage-etl/data
+
+
+==================================================
+# 2. CREATE CSV
+==================================================
+
+nano telecom_usage.csv
+
+# Paste:
+
+usage_id,customer_id,plan,call_minutes,sms_count,data_gb,usage_date,circle
+U001,C101,Premium,450,120,8.5,2026-09-25,Bangalore
+U002,C102,Basic,120,45,2.3,2026-09-25,Mysore
+U003,C103,Premium,620,180,15.2,2026-09-25,Bangalore
+U004,C104,Basic,210,60,4.5,2026-09-26,Chennai
+U005,C105,Premium,580,150,10.5,2026-09-26,Hyderabad
+U006,C106,Basic,95,30,1.8,2026-09-26,Mangalore
+U007,C107,Premium,710,220,18.7,2026-09-27,Bangalore
+U008,C108,Basic,165,55,6.2,2026-09-27,Mysore
+U009,C109,Premium,490,135,9.9,2026-09-27,Chennai
+U010,C110,Basic,250,75,10.0,2026-09-28,Hyderabad
+U011,C111,Premium,530,160,12.4,2026-09-28,Bangalore
+U012,C112,Basic,140,40,3.7,2026-09-28,Mangalore
+U013,C113,Premium,680,200,20.1,2026-09-29,Chennai
+U014,C114,Basic,190,65,7.5,2026-09-29,Mysore
+U015,C115,Premium,455,110,9.5,2026-09-29,Hyderabad
+
+# Save: Ctrl+O → Enter → Ctrl+X
+
+# Check:
+cat telecom_usage.csv
+wc -l telecom_usage.csv
+
+# Expected: 16 lines
+
+
+==================================================
+# 3. HDFS
+==================================================
+start-dfs.sh
+start-yarn.sh
+jps
+
+hdfs dfsadmin -safemode get (if it ON then do OFF by next command)
+hdfs dfsadmin -safemode leave (it will OFF the safemode)
+
+
+hdfs dfs -mkdir -p /telecom/raw/customer_usage
+
+hdfs dfs -put -f ~/telecom-usage-etl/data/telecom_usage.csv /telecom/raw/customer_usage/
+
+hdfs dfs -ls /telecom/raw/customer_usage
+
+hdfs dfs -cat /telecom/raw/customer_usage/telecom_usage.csv
+
+
+==================================================
+# 4. HIVE
+==================================================
+hive --service metastore (start in 1 terminal)
+
+hiveserver2 (start in 2nd terminal)
+
+check connection with:
+
+ss -ltnp | grep -E '9083|10000'
+
+if it is listening then it will return listen 9083 and 10000
+then connect beeline with next command:
+
+beeline -u jdbc:hive2://localhost:10000/default
+
+
+# Database
+
+CREATE DATABASE IF NOT EXISTS telecom_dw;
+
+USE telecom_dw;
+
+
+==================================================
+# 5. RAW TABLE
+==================================================
+
+CREATE TABLE IF NOT EXISTS telecom_usage_raw (
+    usage_id STRING,
+    customer_id STRING,
+    plan STRING,
+    call_minutes INT,
+    sms_count INT,
+    data_gb DOUBLE,
+    usage_date DATE,
+    circle STRING
+)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+TBLPROPERTIES ('skip.header.line.count'='1');
+
+
+==================================================
+# 6. LOAD RAW DATA
+==================================================
+
+LOAD DATA INPATH '/telecom/raw/customer_usage/telecom_usage.csv' INTO TABLE telecom_usage_raw;
+
+
+==================================================
+# 7. VERIFY RAW TABLE
+==================================================
+
+SELECT * FROM telecom_usage_raw;
+
+SELECT COUNT(*) FROM telecom_usage_raw;
+
+# Expected: 15
+
+
+==================================================
+# 8. TRANSFORMATION + FINAL TABLE
+==================================================
+
+DROP TABLE IF EXISTS telecom_usage_final;
+
+CREATE TABLE telecom_usage_final AS
+
+SELECT
+    usage_id,
+    customer_id,
+    plan,
+    call_minutes,
+    sms_count,
+    data_gb,
+    usage_date,
+    circle,
+
+    CASE
+        WHEN data_gb >= 10 THEN 'HIGH'
+        ELSE 'NORMAL'
+    END AS usage_category
+
+FROM telecom_usage_raw;
+
+
+==================================================
+# 9. VERIFY FINAL TABLE
+==================================================
+
+SELECT * FROM telecom_usage_final;
+
+
+SELECT
+    usage_id,
+    customer_id,
+    data_gb,
+    circle,
+    usage_category
+FROM telecom_usage_final;
+
+
+# Rule:
+# data_gb >= 10 → HIGH
+# data_gb < 10  → NORMAL
+
+
+==================================================
+# 10. CHECK HIGH CUSTOMERS
+==================================================
+
+SELECT *
+FROM telecom_usage_final
+WHERE usage_category = 'HIGH';
+
+
+# Expected:
+# U003, U005, U007, U010, U011, U013
+
+
+==================================================
+# 11. CATEGORY COUNT
+==================================================
+
+SELECT
+    usage_category,
+    COUNT(*) AS count
+FROM telecom_usage_final
+GROUP BY usage_category;
+
+# Expected:
+# HIGH   = 6
+# NORMAL = 9
+
+
+
+==================================================
+# 13. AIRFLOW
+==================================================
+
+//1. Check Python
+python3 --version
+
+//Expected:
+
+Python 3.11.11
+
+//
+python3 -m pip --version
+
+//2. Install Python Virtual Environment
+
+sudo apt update
+
+sudo apt install -y python3-venv python3-pip
+
+//3. Create Airflow Virtual Environment
+The virtual environment is directly under /home/ubuntu.
+
+cd /home/ubuntu
+
+python3 -m venv airflow_venv
+
+//Activate it:
+
+source /home/ubuntu/airflow_venv/bin/activate
+
+//Check:
+
+which python
+
+//Expected:
+
+/home/ubuntu/airflow_venv/bin/python
+
+//4. Upgrade pip
+
+pip install --upgrade pip setuptools wheel
+
+//5. Install Airflow
+//Set Airflow version:
+
+export AIRFLOW_VERSION=3.1.2
+
+//Set Python version:
+
+export PYTHON_VERSION=3.11
+
+//Install:
+
+pip install "apache-airflow==${AIRFLOW_VERSION}" \
+--constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+
+//Check installation:
+
+airflow version
+
+//6. Set AIRFLOW_HOME
+
+export AIRFLOW_HOME=/home/ubuntu/airflow
+
+//Verify:
+
+echo $AIRFLOW_HOME
+
+//Expected:
+
+/home/ubuntu/airflow
+
+//Create DAG directory:
+
+mkdir -p /home/ubuntu/airflow/dags
+
+//7. Initialize Airflow Database
+
+airflow db migrate
+
+//Wait until you see:
+
+Database migrating done!
+
+//8. Start Airflow
+//Use:
+
+airflow standalone
+
+//Keep this terminal running.
+
+//Airflow UI:
+
+http://localhost:8080
+
+//Airflow standalone automatically creates the admin login credentials.
+
+//9. Open a Second Terminal
+
+source /home/ubuntu/airflow_venv/bin/activate
+
+export AIRFLOW_HOME=/home/ubuntu/airflow
+
+//10. Create DAG File
+
+cd /home/ubuntu/airflow/dags
+
+nano telecom_customer_usage_etl.py
+
+# Paste:
+
+from airflow import DAG
+from airflow.providers.standard.operators.bash import BashOperator
+from datetime import datetime
+
+
+with DAG(
+    dag_id="telecom_customer_usage_etl",
+    start_date=datetime(2026, 10, 1),
+    schedule=None,
+    catchup=False,
+) as dag:
+
+    # 1. EXTRACT
+    extract = BashOperator(
+        task_id="extract",
+        bash_command="""
+        test -f /home/ubuntu/telecom-usage-etl/data/telecom_usage.csv
+        echo "Input CSV file found successfully"
+        """,
+    )
+
+    # 2. LOAD RAW DATA INTO HDFS
+    load_to_hdfs = BashOperator(
+        task_id="load_to_hdfs",
+        bash_command="""
+        hdfs dfs -mkdir -p /telecom/raw/customer_usage
+
+        hdfs dfs -put -f \
+        /home/ubuntu/telecom-usage-etl/data/telecom_usage.csv \
+        /telecom/raw/customer_usage/
+
+        echo "CSV loaded into HDFS successfully"
+
+        hdfs dfs -ls /telecom/raw/customer_usage
+        """,
+    )
+
+    # 3. TRANSFORM DATA USING HIVE
+    transform_hive = BashOperator(
+        task_id="transform_hive",
+        bash_command="""
+        beeline -u jdbc:hive2://localhost:10000/default -e "
+
+        CREATE DATABASE IF NOT EXISTS telecom_dw;
+
+        USE telecom_dw;
+
+        DROP TABLE IF EXISTS telecom_usage_raw;
+
+        CREATE TABLE telecom_usage_raw (
+            usage_id STRING,
+            customer_id STRING,
+            plan STRING,
+            call_minutes INT,
+            sms_count INT,
+            data_gb DOUBLE,
+            usage_date DATE,
+            circle STRING
+        )
+        ROW FORMAT DELIMITED
+        FIELDS TERMINATED BY ','
+        STORED AS TEXTFILE
+        TBLPROPERTIES ('skip.header.line.count'='1');
+
+        LOAD DATA INPATH
+        '/telecom/raw/customer_usage/telecom_usage.csv'
+        INTO TABLE telecom_usage_raw;
+
+        DROP TABLE IF EXISTS telecom_usage_final;
+
+        CREATE TABLE telecom_usage_final AS
+        SELECT
+            usage_id,
+            customer_id,
+            plan,
+            call_minutes,
+            sms_count,
+            data_gb,
+            usage_date,
+            circle,
+            CASE
+                WHEN data_gb >= 10 THEN 'HIGH'
+                ELSE 'NORMAL'
+            END AS usage_category
+        FROM telecom_usage_raw;
+        "
+        """,
+    )
+
+    # 4. LOAD DATA WAREHOUSE / VERIFY FINAL TABLE
+    load_dw = BashOperator(
+        task_id="load_dw",
+        bash_command="""
+        beeline -u jdbc:hive2://localhost:10000/default -e "
+
+        USE telecom_dw;
+
+        SELECT COUNT(*) AS raw_count
+        FROM telecom_usage_raw;
+
+        SELECT COUNT(*) AS final_count
+        FROM telecom_usage_final;
+
+        SELECT
+            usage_id,
+            customer_id,
+            plan,
+            data_gb,
+            circle,
+            usage_category
+        FROM telecom_usage_final;
+
+        SELECT
+            usage_category,
+            COUNT(*) AS count
+        FROM telecom_usage_final
+        GROUP BY usage_category;
+        "
+        """,
+    )
+
+
+    # DAG DEPENDENCY
+    extract >> load_to_hdfs >> transform_hive >> load_dw
+
+//11. Check DAG Import Errors
+
+airflow dags list-import-errors
+
+//If there is no output, there are no DAG import errors.
+
+//12. Check DAG Tasks
+
+airflow tasks list telecom_customer_usage_etl
+
+//Expected:
+
+extract
+load_to_hdfs
+transform_hive
+load_dw
+
+//13. Trigger DAG
+
+airflow dags trigger telecom_customer_usage_etl
+
+//14. Check DAG Pause Status
+
+airflow dags list | grep telecom_customer_usage_etl
+
+//If the DAG is paused, unpause it:
+
+airflow dags unpause telecom_customer_usage_etl
+
+//Check:
+
+airflow dags list | grep telecom_customer_usage_etl
+
+//The DAG should be:
+
+paused = False
+
+//15. Get Exact Run ID
+//Run:
+
+airflow dags list-runs -d telecom_customer_usage_etl
+
+//Example:
+
+manual__2026-10-07T04:31:44.033007+00:00
+
+Copy the complete run ID.
+
+//16. Check Status of Every Task
+//Use:
+
+airflow tasks states-for-dag-run telecom_customer_usage_etl \
+manual__2026-10-07T04:31:44.033007+00:00
+
+//Replace the run ID with your actual run ID.
+
+//You should see:
+
+extract
+load_to_hdfs
+transform_hive
+load_dw
+
+//Possible task states:
+
+queued
+running
+success
+failed
+upstream_failed
+
+//17.Airflow UI
+//Open:
+
+http://localhost:8080
+
+//USE LOGIN CREDENTIALS GENERATED AT AIRFLOW STANDALONE TERMINAL
+
+//Open:
+
+telecom_customer_usage_etl
+
+//The graph should be:
+
+extract
+   ↓
+load_to_hdfs
+   ↓
+transform_hive
+   ↓
+load_dw
+
+//All four tasks should become GREEN(SUCCESS).
+
+# Main Airflow dependency:
+
+upload_to_hdfs
+>>
+load_raw_table
+>>
+transform_data
+>>
+verify_output

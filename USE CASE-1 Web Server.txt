@@ -1,0 +1,303 @@
+USE CASE-1: Web Server HTTP Status Code Analysis — Mapper + Reducer Only
+
+  1\. Start Hadoop
+
+```
+start-dfs.sh
+start-yarn.sh
+
+jps
+```
+
+ If YARN shows `Total Nodes: 0`:
+
+```
+yarn node -list
+
+rm -rf /home/ubuntu/.cache/*
+
+df -h /
+
+sudo du -xhd1 /var | sort -h
+
+stop-yarn.sh
+stop-dfs.sh
+
+start-dfs.sh
+start-yarn.sh
+
+jps
+```
+
+  2\. Create project directory
+
+```
+cd ~
+
+mkdir -p web-log-mapreduce
+
+cd ~/web-log-mapreduce
+```
+
+  3\. Create input file
+
+```
+nano web_logs.txt
+```
+
+ Enter:
+
+```
+192.168.1.10 GET /home 200
+192.168.1.11 GET /login 200
+192.168.1.12 GET /product 404
+192.168.1.13 GET /home 200
+192.168.1.14 GET /checkout 500
+192.168.1.15 GET /product 404
+192.168.1.16 GET /home 200
+192.168.1.17 GET /server 500
+```
+
+ Check:
+
+```
+cat web_logs.txt
+```
+
+---
+
+  4\. Create Mapper
+
+```
+nano StatusCodeMapper.py
+```
+
+ Use:
+
+```
+#!/usr/bin/env python3
+
+import sys
+
+for line in sys.stdin:
+    parts = line.strip().split()
+
+    if len(parts) >= 4:
+        status_code = parts[3]
+        print(f"{status_code}\t1")
+```
+
+ Make it executable:
+
+```
+chmod +x StatusCodeMapper.py
+```
+
+ Test it:
+
+```
+cat web_logs.txt | python3 StatusCodeMapper.py
+```
+
+ Expected:
+
+```
+200     1
+200     1
+404     1
+200     1
+500     1
+404     1
+200     1
+500     1
+```
+
+---
+
+  5\. Create Reducer
+
+```
+nano StatusCodeReducer.py
+```
+
+ Use:
+
+```
+#!/usr/bin/env python3
+
+import sys
+
+current_key = None
+current_sum = 0
+
+for line in sys.stdin:
+    key, value = line.strip().split("\t")
+    value = int(value)
+
+    if current_key == key:
+        current_sum += value
+    else:
+        if current_key is not None:
+            print(f"{current_key}\t{current_sum}")
+
+        current_key = key
+        current_sum = value
+
+if current_key is not None:
+    print(f"{current_key}\t{current_sum}")
+```
+
+ Make it executable:
+
+```
+chmod +x StatusCodeReducer.py
+```
+
+ Test Mapper + Reducer locally:
+
+```
+cat web_logs.txt | python3 StatusCodeMapper.py | sort | python3 StatusCodeReducer.py
+```
+
+ Expected:
+
+```
+200     4
+404     2
+500     2
+```
+
+---
+
+  6\. Check files
+
+```
+ls -lh
+```
+
+ You only need:
+
+```
+StatusCodeMapper.py
+StatusCodeReducer.py
+web_logs.txt
+```
+
+ No:
+
+```
+StatusCodeCombiner.py
+StatusCodePartitioner.py
+StatusCodeDriver.py
+```
+
+---
+
+  7\. Create HDFS input directory
+
+```
+hdfs dfs -mkdir -p /user/$USER/web_logs/input
+```
+
+ Upload the input:
+
+```
+hdfs dfs -put -f web_logs.txt /user/$USER/web_logs/input/
+```
+
+ Check:
+
+```
+hdfs dfs -ls /user/$USER/web_logs/input
+```
+
+```
+hdfs dfs -cat /user/$USER/web_logs/input/web_logs.txt
+```
+
+---
+
+  8\. Remove previous output
+
+```
+hdfs dfs -rm -r -f /user/$USER/web_logs/output
+```
+
+---
+
+  9\. Run Hadoop Streaming
+
+
+
+```
+hadoop jar /opt/hadoop/share/hadoop/tools/lib/hadoop-streaming-3.3.6.jar \
+-input /user/$USER/web_logs/input \
+-output /user/$USER/web_logs/output \
+-mapper "python3 StatusCodeMapper.py" \
+-reducer "python3 StatusCodeReducer.py" \
+-file StatusCodeMapper.py \
+-file StatusCodeReducer.py
+```
+
+---
+
+  10\. Check output
+
+```
+hdfs dfs -ls /user/$USER/web_logs/output
+```
+
+ Then:
+
+```
+hdfs dfs -cat /user/$USER/web_logs/output/part-*
+```
+
+ Expected:
+
+```
+200     4
+404     2
+500     2
+```
+
+ Or:
+
+```
+hdfs dfs -cat /user/$USER/web_logs/output/part-* | sort
+```
+
+ Expected:
+
+```
+200     4
+404     2
+500     2
+```
+
+  Final structure
+
+ Your MapReduce application is now simply:
+
+```
+web_logs.txt
+     |
+     v
+   Mapper
+     |
+     |  200  1
+     |  200  1
+     |  404  1
+     |  ...
+     v
+ Hadoop Shuffle & Sort
+     |
+     v
+   Reducer
+     |
+     v
+ 200    4
+ 404    2
+ 500    2
+```
+
