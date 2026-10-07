@@ -1,0 +1,1435 @@
+# Problem Statement: Railway Operations and Train Delay Analytics
+
+A railway zone operates 200 trains and records information about approximately 30,000 train trips over a 9-month period. The railway authority maintains train details such as train type, zone, distance, number of coaches, train age, and previous breakdowns. Each trip record contains the trip date, weather condition, maintenance activity, passenger count, and actual delay in minutes.
+
+The railway management wants to use Apache Spark to analyze operational performance and predict train delays.
+
+// Requirements
+
+1. Load the train and trip datasets into PySpark DataFrames.
+
+2. Use Spark SQL to analyze:
+
+   * Train distribution by railway zone.
+   * Average delay and delay percentage based on weather.
+   * Delay performance by train type.
+
+3. Use Spark Window Functions to:
+
+   * Identify the top 3 delay-prone trains in each zone.
+   * Calculate monthly total delay, running total of delays, month-over-month change, and 3-month moving average.
+
+4. Perform data analysis to identify the impact of:
+
+   * Weather conditions.
+   * Track maintenance.
+   * Train age.
+   * Railway zone
+
+   on train delays.
+
+5. Build MLlib classification models to predict whether a trip will be delayed by more than 15 minutes:
+
+   * Logistic Regression.
+   * Random Forest.
+   * Compare their performance using AUC.
+
+6. Build a basic neural network using Multilayer Perceptron and compare its performance with the MLlib models.
+
+7. Store the train data, trip data, and prediction results in PostgreSQL using Spark JDBC.
+
+8. Read the PostgreSQL data back into Spark and identify high-risk trips having a high probability of delay.
+
+9. Execute the Spark analytics and ML workflow on a cloud Spark platform such as Databricks.
+
+10. Study how autoscaling, cluster sizing, auto-termination, and cloud storage formats can be used to reduce Spark processing cost.
+
+// Expected Outcome
+
+The final system should provide:
+
+* Railway operational and delay analysis.
+* Top delay-prone trains and zones.
+* Factors contributing to delays.
+* A model that predicts whether a train trip will be delayed.
+* Prediction results stored in PostgreSQL.
+* A cloud-based Spark execution of the same analytics workflow.
+
+
+WSL + Java 17 + PySpark 3.5.1 + PostgreSQL setup.
+
+# Railway Operations and Train Delay Analytics
+
+//Complete flow
+
+
+Python Dataset
+     |
+     v
+CSV Files
+     |
+     v
+PySpark
+     |
+     +--> Spark SQL
+     |
+     +--> Window Functions
+     |
+     +--> Data Analysis
+     |
+     +--> MLlib
+     |
+     +--> Neural Network
+     |
+     v
+PostgreSQL
+     |
+     v
+Cloud Spark / Databricks
+
+
+
+
+# PART 1 — Check Environment
+
+// Step 1: Open WSL
+wsl
+
+
+Check Java:
+
+
+java -version
+
+
+Expected:
+
+
+openjdk version "17..."
+
+
+Check Python:
+
+
+python3 --version
+
+
+Check PySpark environment:
+
+
+source ~/sparkenv/bin/activate
+
+
+Check:
+
+
+which python
+pyspark --version
+
+
+Expected:
+
+
+PySpark 3.5.1
+
+
+
+
+# PART 2 — Create Project
+
+// Step 2: Create project directory
+
+
+mkdir -p ~/rail-lab/data
+cd ~/rail-lab
+
+
+Check:
+
+
+pwd
+
+
+Expected:
+
+
+/home/sari/rail-lab
+
+
+
+
+# PART 3 — Install Required Python Packages
+
+Activate environment:
+
+
+source ~/sparkenv/bin/activate
+
+
+Install:
+
+
+pip install pandas numpy
+
+
+Verify:
+
+
+python -c "import pandas,numpy; print('OK')"
+
+
+
+
+# PART 4 — Generate Railway Dataset
+
+// Step 3: Create Python file
+
+
+nano gen_data.py
+
+
+Paste:
+
+python
+import numpy as np
+import pandas as pd
+
+np.random.seed(42)
+
+# --
+# TRAIN MASTER DATA
+# --
+n = 200
+
+trains = pd.DataFrame({
+    "train_id": range(1, n + 1),
+    "train_type": np.random.choice(
+        ["Rajdhani", "Superfast", "Express", "Passenger"], n
+    ),
+    "zone": np.random.choice(
+        ["Southern", "Western", "Northern", "Eastern", "Central"], n
+    ),
+    "distance_km": np.random.randint(100, 2200, n),
+    "coaches": np.random.randint(8, 24, n),
+    "age_years": np.random.randint(1, 30, n),
+    "prior_breakdowns": np.random.poisson(1, n)
+})
+
+trains.to_csv("data/trains.csv", index=False)
+
+# TRIP DATA
+m = 30000
+
+trips = pd.DataFrame({
+    "trip_id": range(1, m + 1),
+
+    "train_id": np.random.randint(1, n + 1, m),
+
+    "trip_date": (
+        pd.to_datetime("2026-01-01")
+        + pd.to_timedelta(
+            np.random.randint(0, 270, m),
+            unit="D"
+        )
+    ).strftime("%Y-%m-%d"),
+
+    "weather": np.random.choice(
+        ["Clear", "Rain", "Fog"],
+        m,
+        p=[0.60, 0.25, 0.15]
+    ),
+
+    "maintenance_block": np.random.choice(
+        [0, 1],
+        m,
+        p=[0.85, 0.15]
+    ),
+
+    "passengers": np.random.randint(200, 1800, m)
+})
+
+# CREATE DELAY PATTERN
+t = trips.merge(
+    trains,
+    on="train_id",
+    how="left"
+)
+
+z = (
+    -3.0
+    + 1.0 * (t.weather == "Fog")
+    + 0.5 * (t.weather == "Rain")
+    + 0.9 * t.maintenance_block
+    + 0.04 * t.age_years
+    + 0.3 * t.prior_breakdowns
+    + 0.0005 * t.distance_km
+)
+
+late = np.random.rand(m) < (
+    1 / (1 + np.exp(-z))
+)
+
+trips["delay_minutes"] = np.where(
+    late,
+    16 + np.random.exponential(30, m).round(0),
+    np.random.randint(0, 16, m)
+).astype(int)
+
+trips.to_csv("data/trips.csv", index=False)
+
+print(
+    "Done:",
+    len(trains),
+    "trains,",
+    len(trips),
+    "trips"
+)
+
+
+//Save:
+
+
+Ctrl + O
+Enter
+Ctrl + X
+
+//Run:
+python gen_data.py
+
+//Expected:
+Done: 200 trains, 30000 trips
+
+
+# PART 5 — Verify Dataset
+ls -lh data/
+
+//Expected:
+trains.csv
+trips.csv
+
+//Check trains:
+head -3 data/trains.csv
+
+//Check trips:
+head -3 data/trips.csv
+
+//Check number of records:
+wc -l data/trains.csv
+wc -l data/trips.csv
+
+//Expected approximately:
+201 data/trains.csv
+30001 data/trips.csv
+
+
+Header is included, so 200 + 1 and 30000 + 1.
+
+
+
+# PART 6 — PostgreSQL Setup
+
+Open another WSL terminal.
+
+Start PostgreSQL:
+
+
+sudo service postgresql start
+
+
+Check:
+
+
+sudo service postgresql status
+
+
+Create user:
+
+
+sudo -u postgres psql -c "CREATE USER railuser WITH PASSWORD 'Rail@12345';"
+
+
+Create database:
+
+
+sudo -u postgres psql -c "CREATE DATABASE raillab OWNER railuser;"
+
+
+If you get:
+
+
+role "railuser" already exists
+
+
+or
+
+
+database "raillab" already exists
+
+
+that's okay.
+
+Test:
+
+
+PGPASSWORD='Rail@12345' psql -h localhost -U railuser -d raillab -c "\l"
+
+
+
+
+# PART 7 — Start PySpark
+
+Go back to project directory:
+
+
+cd ~/rail-lab
+
+
+Activate environment:
+
+
+source ~/sparkenv/bin/activate
+
+
+Start PySpark with PostgreSQL JDBC driver:
+
+
+pyspark --packages org.postgresql:postgresql:42.7.3
+
+
+Wait until you get:
+
+
+>>>
+
+
+From now on, commands are entered inside PySpark.
+
+
+
+# SESSION 29
+
+# PART 8 — Load Data into Spark
+
+//Enter:
+from pyspark.sql import functions as F
+
+
+//Load trains:
+trains = spark.read.csv(
+    "data/trains.csv",
+    header=True,
+    inferSchema=True
+)
+
+
+//Load trips:
+trips = spark.read.csv(
+    "data/trips.csv",
+    header=True,
+    inferSchema=True
+)
+
+//Create delayed column:
+
+python
+trips = trips.withColumn(
+    "delayed",
+    (F.col("delay_minutes") > 15).cast("int")
+)
+
+
+//Meaning:
+delay_minutes > 15  → delayed = 1
+delay_minutes <= 15 → delayed = 0
+
+
+
+
+# PART 9 — Inspect Data
+
+//Train schema:
+trains.printSchema()
+
+
+//Trip schema:
+trips.printSchema()
+
+
+//Display trains:
+trains.show(5)
+
+
+//Display trips:
+trips.show(5)
+
+
+//Count:
+print("Trains:", trains.count())
+print("Trips:", trips.count())
+
+
+//Expected:
+Trains: 200
+Trips: 30000
+
+# PART 10 — Create SQL Views
+trains.createOrReplaceTempView("trains")
+
+trips.createOrReplaceTempView("trips")
+
+
+//Now SQL can query these DataFrames.
+
+
+
+# PART 11 — Spark SQL Queries
+
+// Query 1 — Fleet profile by zone
+spark.sql("""
+SELECT
+    zone,
+    COUNT(*) AS trains,
+    ROUND(AVG(age_years),1) AS avg_age,
+    ROUND(AVG(distance_km),0) AS avg_distance_km
+FROM trains
+GROUP BY zone
+ORDER BY trains DESC
+""").show()
+
+
+// Query 2 — Delay by weather
+
+spark.sql("""
+SELECT
+    weather,
+    COUNT(*) AS trips,
+    ROUND(AVG(delay_minutes),1) AS avg_delay_min,
+    ROUND(AVG(delayed)*100,1) AS delayed_pct
+FROM trips
+GROUP BY weather
+ORDER BY delayed_pct DESC
+""").show()
+
+
+
+
+// Query 3 — Delay by train type
+spark.sql("""
+SELECT
+    tr.train_type,
+    COUNT(*) AS trips,
+    ROUND(AVG(t.delay_minutes),1) AS avg_delay_min,
+    ROUND(AVG(t.delayed)*100,1) AS delayed_pct
+FROM trips t
+JOIN trains tr
+ON t.train_id = tr.train_id
+GROUP BY tr.train_type
+ORDER BY delayed_pct DESC
+""").show()
+
+
+
+
+# PART 12 — Spark Execution Plan
+spark.sql("""
+SELECT zone, COUNT(*)
+FROM trains
+GROUP BY zone
+""").explain(True)
+
+
+//Look for:
+Parsed Logical Plan
+Analyzed Logical Plan
+Optimized Logical Plan
+Physical Plan
+
+
+
+
+# SESSION 29 — WINDOW FUNCTIONS
+
+# PART 13 — Ranking Trains
+
+Run:
+
+spark.sql("""
+WITH train_delay AS (
+    SELECT
+        tr.train_id,
+        tr.train_type,
+        tr.zone,
+        ROUND(SUM(t.delay_minutes)/60,0) AS total_delay_hrs
+    FROM trips t
+    JOIN trains tr
+    ON t.train_id = tr.train_id
+    GROUP BY
+        tr.train_id,
+        tr.train_type,
+        tr.zone
+)
+
+SELECT *
+FROM (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY zone
+            ORDER BY total_delay_hrs DESC
+        ) AS row_num,
+
+        RANK() OVER (
+            PARTITION BY zone
+            ORDER BY total_delay_hrs DESC
+        ) AS rnk,
+
+        DENSE_RANK() OVER (
+            PARTITION BY zone
+            ORDER BY total_delay_hrs DESC
+        ) AS dense_rnk
+
+    FROM train_delay
+)
+WHERE rnk <= 3
+ORDER BY zone, rnk
+""").show(15)
+
+
+//Result:
+
+
+Top 3 delay-prone trains in every zone
+
+# PART 14 — Running Total
+spark.sql("""
+WITH monthly AS (
+    SELECT
+        date_format(trip_date,'yyyy-MM') AS month,
+        ROUND(SUM(delay_minutes)/60,0) AS delay_hours
+    FROM trips
+    GROUP BY 1
+)
+
+SELECT
+    month,
+    delay_hours,
+
+    SUM(delay_hours) OVER (
+        ORDER BY month
+    ) AS running_total_hrs,
+
+    delay_hours -
+    LAG(delay_hours,1) OVER (
+        ORDER BY month
+    ) AS change_vs_prev_month,
+
+    ROUND(
+        AVG(delay_hours) OVER (
+            ORDER BY month
+            ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        ),
+        0
+    ) AS moving_avg_3m
+
+FROM monthly
+ORDER BY month
+""").show()
+
+
+
+
+# PART 15 — Data Analysis
+
+// Maintenance impact
+spark.sql("""
+SELECT
+    maintenance_block,
+    COUNT(*) AS trips,
+    ROUND(AVG(delayed)*100,1) AS delayed_pct,
+    ROUND(AVG(delay_minutes),1) AS avg_delay_min
+FROM trips
+GROUP BY maintenance_block
+ORDER BY maintenance_block
+""").show()
+
+
+// Train age impact
+spark.sql("""
+SELECT
+    CASE
+        WHEN tr.age_years < 10 THEN 'Under 10 yrs'
+        WHEN tr.age_years < 20 THEN '10-20 yrs'
+        ELSE '20+ yrs'
+    END AS stock_age,
+
+    ROUND(AVG(t.delayed)*100,1) AS delayed_pct
+
+FROM trips t
+JOIN trains tr
+ON t.train_id = tr.train_id
+
+GROUP BY 1
+ORDER BY delayed_pct DESC
+""").show()
+
+// Zone impact
+spark.sql("""
+SELECT
+    tr.zone,
+    ROUND(AVG(t.delayed)*100,1) AS delayed_pct
+
+FROM trips t
+JOIN trains tr
+ON t.train_id = tr.train_id
+
+GROUP BY tr.zone
+ORDER BY delayed_pct DESC
+""").show()
+
+# SESSION 30–31
+
+# PART 16 — MLlib Prediction
+
+//Goal:
+//Predict:
+0 = On time
+1 = Delayed
+
+
+//Import libraries:
+from pyspark.ml import Pipeline
+
+from pyspark.ml.feature import (
+    VectorAssembler,
+    StandardScaler
+)
+
+from pyspark.ml.classification import (
+    LogisticRegression,
+    RandomForestClassifier
+)
+
+from pyspark.ml.evaluation import (
+    BinaryClassificationEvaluator,
+    MulticlassClassificationEvaluator
+)
+
+
+
+
+# PART 17 — Prepare ML Dataset
+
+python
+df = (
+    trips
+    .join(trains, "train_id")
+    .withColumn(
+        "weather_score",
+        F.when(F.col("weather") == "Fog", 2)
+         .when(F.col("weather") == "Rain", 1)
+         .otherwise(0)
+    )
+    .withColumn(
+        "label",
+        F.col("delayed").cast("double")
+    )
+)
+
+
+//Features:
+features = [
+    "distance_km",
+    "coaches",
+    "age_years",
+    "prior_breakdowns",
+    "passengers",
+    "maintenance_block",
+    "weather_score"
+]
+
+
+//Split:
+train, test = df.randomSplit(
+    [0.8, 0.2],
+    seed=42
+)
+
+
+//Check:
+print("Train:", train.count())
+print("Test :", test.count())
+
+
+
+
+# PART 18 — VectorAssembler
+assembler = VectorAssembler(
+    inputCols=features,
+    outputCol="raw"
+)
+
+
+# PART 19 — StandardScaler
+
+scaler = StandardScaler(
+    inputCol="raw",
+    outputCol="features",
+    withMean=True,
+    withStd=True
+)
+
+
+
+
+# PART 20 — AUC Evaluator
+
+python
+auc_eval = BinaryClassificationEvaluator(
+    labelCol="label",
+    metricName="areaUnderROC"
+)
+
+
+
+
+# PART 21 — Logistic Regression
+
+Create model:
+
+python
+lr_model = Pipeline(
+    stages=[
+        assembler,
+        scaler,
+        LogisticRegression(labelCol="label")
+    ]
+).fit(train)
+
+
+Predict:
+
+python
+lr_pred = lr_model.transform(test)
+
+
+Evaluate:
+
+python
+print(
+    "Logistic Regression AUC:",
+    round(auc_eval.evaluate(lr_pred), 3)
+)
+
+
+
+
+# PART 22 — Random Forest
+
+python
+rf_model = Pipeline(
+    stages=[
+        assembler,
+        scaler,
+        RandomForestClassifier(
+            labelCol="label",
+            numTrees=50,
+            seed=42
+        )
+    ]
+).fit(train)
+
+
+Predict:
+
+python
+rf_pred = rf_model.transform(test)
+
+
+Evaluate:
+
+python
+print(
+    "Random Forest AUC:",
+    round(auc_eval.evaluate(rf_pred), 3)
+)
+
+
+
+
+# PART 23 — Feature Importance
+
+python
+for name, imp in sorted(
+    zip(
+        features,
+        rf_model.stages[-1].featureImportances.toArray()
+    ),
+    key=lambda x: -x[1]
+):
+    print(f"{name:18s} {imp:.3f}")
+
+
+Expected important factors include:
+
+
+weather_score
+maintenance_block
+age_years
+prior_breakdowns
+
+
+
+
+# PART 24 — Check Predictions
+
+python
+rf_pred.select(
+    "trip_id",
+    "train_id",
+    "label",
+    "prediction",
+    "probability"
+).show(10, truncate=False)
+
+
+
+
+# SESSION 30–31
+
+# PART 25 — Neural Network
+
+Import:
+
+python
+from pyspark.ml.classification import MultilayerPerceptronClassifier
+
+
+Create neural network:
+
+python
+mlp = MultilayerPerceptronClassifier(
+    labelCol="label",
+    featuresCol="features",
+    layers=[7, 16, 8, 2],
+    maxIter=100,
+    seed=42
+)
+
+
+Train:
+
+python
+mlp_model = Pipeline(
+    stages=[
+        assembler,
+        scaler,
+        mlp
+    ]
+).fit(train)
+
+
+Predict:
+
+python
+mlp_pred = mlp_model.transform(test)
+
+
+AUC:
+
+python
+print(
+    "MLP AUC:",
+    round(auc_eval.evaluate(mlp_pred), 3)
+)
+
+
+Accuracy:
+
+python
+accuracy_eval = MulticlassClassificationEvaluator(
+    labelCol="label",
+    metricName="accuracy"
+)
+
+
+python
+print(
+    "MLP Accuracy:",
+    round(accuracy_eval.evaluate(mlp_pred), 3)
+)
+
+
+View predictions:
+
+python
+mlp_pred.select(
+    "trip_id",
+    "train_id",
+    "label",
+    "prediction"
+).show(10)
+
+
+
+
+# PART 26 — Important ML Concept
+
+Do NOT use:
+
+python
+delay_minutes
+
+
+as an input feature.
+
+Reason:
+
+
+delay_minutes = actual outcome
+
+
+Using it to predict:
+
+
+delayed
+
+
+would be:
+
+
+DATA LEAKAGE
+
+
+
+
+# SESSION 30–31
+
+# PART 27 — PostgreSQL JDBC
+
+Before writing to PostgreSQL, make sure PostgreSQL is running.
+
+From another terminal:
+
+
+sudo service postgresql start
+
+
+Back in PySpark:
+
+python
+url = "jdbc:postgresql://localhost:5432/raillab"
+
+
+Properties:
+
+python
+props = {
+    "user": "railuser",
+    "password": "Rail@12345",
+    "driver": "org.postgresql.Driver"
+}
+
+
+
+
+# PART 28 — Write Trains to PostgreSQL
+
+python
+trains.write.jdbc(
+    url,
+    "trains",
+    mode="overwrite",
+    properties=props
+)
+
+
+
+
+# PART 29 — Write Trips
+
+python
+trips.write.jdbc(
+    url,
+    "trips",
+    mode="overwrite",
+    properties=props
+)
+
+
+
+
+# PART 30 — Save Predictions
+
+Import:
+
+python
+from pyspark.ml.functions import vector_to_array
+
+
+Create prediction table:
+
+python
+preds = (
+    lr_pred
+    .withColumn(
+        "delay_prob",
+        F.round(
+            vector_to_array("probability")[1],
+            3
+        )
+    )
+    .select(
+        "trip_id",
+        "train_id",
+        "zone",
+        "train_type",
+        "label",
+        "prediction",
+        "delay_prob"
+    )
+)
+
+
+Check:
+
+python
+preds.show(10)
+
+
+Write:
+
+python
+preds.write.jdbc(
+    url,
+    "delay_predictions",
+    mode="overwrite",
+    properties=props
+)
+
+
+
+
+# PART 31 — Read PostgreSQL Using Spark
+
+Read trains:
+
+python
+train_db = spark.read.jdbc(
+    url,
+    "trains",
+    properties=props
+)
+
+
+Count:
+
+python
+train_db.count()
+
+
+Expected:
+
+
+200
+
+
+
+
+# PART 32 — PostgreSQL Query Through Spark
+
+python
+spark.read.jdbc(
+    url,
+    "(SELECT zone, COUNT(*) AS n FROM trains GROUP BY zone) AS q",
+    properties=props
+).show()
+
+
+
+
+# PART 33 — Find High-Risk Trips
+
+python
+risk = spark.read.jdbc(
+    url,
+    "delay_predictions",
+    properties=props
+)
+
+
+python
+risk.filter(
+    "delay_prob > 0.6"
+).orderBy(
+    F.desc("delay_prob")
+).show(10)
+
+
+
+
+# PART 34 — Verify PostgreSQL From Terminal
+
+Exit PySpark:
+
+python
+exit()
+
+
+Now:
+
+
+cd ~/rail-lab
+
+
+Check tables:
+
+
+PGPASSWORD='Rail@12345' psql \
+-h localhost \
+-U railuser \
+-d raillab \
+-c "\dt"
+
+
+Expected:
+
+
+trains
+trips
+delay_predictions
+
+
+Check predictions:
+
+
+PGPASSWORD='Rail@12345' psql \
+-h localhost \
+-U railuser \
+-d raillab \
+-c "SELECT * FROM delay_predictions ORDER BY delay_prob DESC LIMIT 5;"
+
+
+
+
+# PART 35 — Final Local Project Structure
+
+
+rail-lab/
+│
+├── gen_data.py
+│
+└── data/
+    ├── trains.csv
+    └── trips.csv
+
+
+PostgreSQL:
+
+
+raillab
+│
+├── trains
+├── trips
+└── delay_predictions
+
+
+
+
+# SESSION 32 — CLOUD SPARK
+
+// Option A — Databricks
+
+Open:
+
+[Databricks](https://www.databricks.com/?utm_source=chatgpt.com)
+
+Create/login to your workspace.
+
+Create a notebook:
+
+
+New
+→ Notebook
+→ Python
+
+
+Upload:
+
+
+trains.csv
+trips.csv
+
+
+Use the path provided by Databricks.
+
+Example:
+
+python
+trains = spark.read.csv(
+    "/Volumes/workspace/default/mydata/trains.csv",
+    header=True,
+    inferSchema=True
+)
+
+trips = spark.read.csv(
+    "/Volumes/workspace/default/mydata/trips.csv",
+    header=True,
+    inferSchema=True
+)
+
+
+The rest of the Spark SQL, window and ML code remains essentially the same.
+
+
+
+# PART 36 — Databricks Display
+
+Instead of:
+
+python
+df.show()
+
+
+you can use:
+
+python
+display(df)
+
+
+
+
+# PART 37 — Save Cloud Result
+
+python
+preds.write.mode("overwrite").saveAsTable(
+    "delay_predictions"
+)
+
+
+Verify:
+
+python
+display(
+    spark.table("delay_predictions")
+)
+
+
+
+
+# PART 38 — Cloud Autoscaling
+
+For the theory portion, configure:
+
+
+Minimum workers = 2
+Maximum workers = 8
+
+
+Meaning:
+
+
+Low workload
+     ↓
+2 workers
+
+High workload
+     ↓
+more workers
+
+Maximum
+     ↓
+8 workers
+
+
+
+
+# PART 39 — Cloud Cost Optimization
+
+Remember these six points:
+
+
+1. Enable autoscaling
+2. Enable auto-termination
+3. Use job clusters
+4. Use spot/preemptible workers
+5. Store data as Parquet/Delta
+6. Right-size cluster
+
+
+
+
+# PART 40 — Final Verification Checklist
+
+Run these locally.
+
+// Dataset
+
+
+ls -lh ~/rail-lab/data/
+
+
+Should contain:
+
+
+trains.csv
+trips.csv
+
+
+// PostgreSQL
+
+
+sudo service postgresql status
+
+
+// Database
+
+
+PGPASSWORD='Rail@12345' psql \
+-h localhost \
+-U railuser \
+-d raillab \
+-c "\dt"
+
+
+// PySpark
+
+
+source ~/sparkenv/bin/activate
+pyspark --version
+
+
+Expected:
+
+
+PySpark 3.5.1
+
+
+
+
+# What Students Have Completed
+
+| Session | Work                    |
+
+| 29      | Load railway data       |
+| 29      | Spark SQL               |
+| 29      | SQL joins               |
+| 29      | Catalyst execution plan |
+| 29      | Window functions        |
+| 29      | Ranking                 |
+| 29      | Running totals          |
+| 29      | Railway delay analysis  |
+| 30      | MLlib preparation       |
+| 30      | Logistic Regression     |
+| 30      | Random Forest           |
+| 30      | Feature importance      |
+| 31      | Neural Network          |
+| 31      | ML evaluation           |
+| 31      | PostgreSQL JDBC         |
+| 31      | Write/read database     |
+| 32      | Databricks              |
+| 32      | Cloud Spark             |
+| 32      | Autoscaling             |
+| 32      | Cloud cost optimization |
+
+// One-line project explanation
+"We analyze railway trip delays using PySpark SQL and window functions, predict future delays using MLlib and a neural network, store predictions in PostgreSQL, and run the same Spark workload on the cloud."
